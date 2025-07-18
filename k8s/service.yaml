@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: blast-radius
+  namespace: default
+  labels:
+    app: blast-radius
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+  - port: {{ .Values.service.port }}
+    targetPort: 5000
+    protocol: TCP
+    name: http
+  selector:
+    app: blast-radius

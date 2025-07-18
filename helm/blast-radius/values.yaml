@@ -1,0 +1,69 @@
+# Default values for blast-radius.
+replicaCount: 1
+
+image:
+  repository: ghcr.io/nkbud/blast-radius
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+# AWS Configuration
+aws:
+  # IAM role ARN for IRSA (required for S3 access)
+  roleArn: ""
+
+# S3 Configuration
+s3:
+  # S3 bucket containing Terraform state files (required)
+  bucket: ""
+  # AWS region for S3 bucket
+  region: "us-east-1"
+  # State file refresh interval in seconds
+  refreshInterval: "300"
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: blast-radius.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: blast-radius-tls
+  #    hosts:
+  #      - blast-radius.local
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# OAuth2 Proxy configuration (optional)
+oauth2Proxy:
+  enabled: false
+  # OAuth2 Proxy can be configured separately as a sidecar or standalone service
+
+# Security context
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 1000
+  capabilities:
+    drop:
+    - ALL
+
+# Node selection
+nodeSelector: {}
+tolerations: []
+affinity: {}

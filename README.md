@@ -149,3 +149,72 @@ These examples are drawn primarily from the `examples/` directory distributed
 with various *Terraform* providers, and aren't necessarily ideal. Additional
 examples, particularly demonstrations of best-practices, or of multi-cloud
 configurations strongly desired.
+
+## Kubernetes Deployment with S3 and IRSA
+
+*Blast Radius* can now be deployed on Kubernetes with AWS S3 integration for reading Terraform state files. This enables visualization of Terraform resources without requiring local terraform files.
+
+### Features
+
+* **S3 Integration**: Read Terraform state files directly from S3
+* **AWS IRSA Support**: Secure authentication using IAM Roles for Service Accounts
+* **Kubernetes Native**: Deploy as a scalable service with health checks
+* **Helm Chart**: Easy deployment and configuration management
+* **Sensitive Data Redaction**: Automatic redaction of sensitive attributes in state files
+
+### Quick Start with Kubernetes
+
+1. **Deploy with Helm**:
+
+```bash
+helm install blast-radius ./helm/blast-radius \
+  --set aws.roleArn="arn:aws:iam::YOUR_ACCOUNT:role/BlastRadiusRole" \
+  --set s3.bucket="your-terraform-state-bucket" \
+  --set s3.region="us-east-1"
+```
+
+2. **Access the service**:
+
+```bash
+kubectl port-forward service/blast-radius 8080:80
+```
+
+3. **View your Terraform state**: Navigate to http://localhost:8080
+
+### Configuration
+
+Key environment variables for S3 mode:
+
+* `S3_BUCKET`: S3 bucket containing Terraform state files (required)
+* `S3_REGION`: AWS region for the S3 bucket (default: us-east-1)
+* `STATE_REFRESH_INTERVAL`: Refresh interval in seconds (default: 300)
+
+### IRSA Setup
+
+Create an IAM role with S3 read permissions and trust relationship for your EKS service account:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:ListBucket"],
+      "Resource": [
+        "arn:aws:s3:::your-bucket",
+        "arn:aws:s3:::your-bucket/*"
+      ]
+    }
+  ]
+}
+```
+
+See the `examples/` directory for complete setup instructions and example configurations.
+
+### API Endpoints
+
+When running in Kubernetes mode, additional API endpoints are available:
+
+* `/api/health` - Health check endpoint
+* `/api/s3/states` - List available state files in S3
+* `/api/s3/refresh` - Force refresh of cached state files

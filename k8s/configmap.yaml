@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: blast-radius-config
+  namespace: default
+data:
+  S3_REGION: "{{ .Values.s3.region }}"
+  STATE_REFRESH_INTERVAL: "{{ .Values.s3.refreshInterval }}"
+  BLAST_RADIUS_PORT: "5000"
