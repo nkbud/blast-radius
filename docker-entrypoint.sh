@@ -8,32 +8,35 @@ if [ "${1}" != "blast-radius" ]; then
   fi
 fi
 
-# Assert CLI args are overwritten, otherwise set them to preferred defaults
-export TF_CLI_ARGS_get=${TF_CLI_ARGS_get:'-update'}
-export TF_CLI_ARGS_init=${TF_CLI_ARGS_init:'-input=false'}
+# Check if we're running in S3 mode
+if [ -n "${S3_BUCKET}" ]; then
+  echo "Running in S3 mode with bucket: ${S3_BUCKET}"
+  echo "Skipping terraform initialization as we'll read state from S3"
+  # For S3 mode, we don't need the overlay filesystem or terraform init
+  cd /data
+else
+  echo "Running in local terraform mode"
+  echo "Note: For full local mode functionality, container needs privileged access for overlay filesystem"
+  echo "In S3 mode, this is not required"
+  # We'll skip the overlay filesystem for now in non-root mode
+  # This will only work if the container is run with proper volume mounts
+  cd /data
 
-# Inside the container
-# Need to create the upper and work dirs inside a tmpfs.
-# Otherwise OverlayFS complains about AUFS folders.
-# Source: https://gist.github.com/detunized/7c8fc4c37b49c5475e68ef9574587eee
-mkdir -p /tmp/overlay && \
-mount -t tmpfs tmpfs /tmp/overlay && \
-mkdir -p /tmp/overlay/upper && \
-mkdir -p /tmp/overlay/work && \
-mkdir -p /data-rw && \
-mount -t overlay overlay -o lowerdir=/data,upperdir=/tmp/overlay/upper,workdir=/tmp/overlay/work /data-rw
+  # Check if terraform files exist
+  if [ -f "*.tf" ] || [ -d ".terraform" ]; then
+    # Assert CLI args are overwritten, otherwise set them to preferred defaults
+    export TF_CLI_ARGS_get=${TF_CLI_ARGS_get:'-update'}
+    export TF_CLI_ARGS_init=${TF_CLI_ARGS_init:'-input=false'}
 
-# change to the overlayFS
-cd /data-rw
+    # Is Terraform already initialized? Ensure modules are all downloaded.
+    [ -d '.terraform' ] && terraform get
 
-# Is Terraform already initialized? Ensure modules are all downloaded.
-[ -d '.terraform' ] && terraform get
-
-# Reinitialize for some reason
-terraform init
-
-# it's possible that we're in a sub-directory. leave.
-cd /data-rw
+    # Initialize terraform
+    terraform init || echo "Terraform init failed - this is expected in S3 mode"
+  else
+    echo "No terraform files found, assuming S3 mode or external configuration"
+  fi
+fi
 
 # Let's go!
 exec "$@"

@@ -1,0 +1,47 @@
+# Blast Radius with S3 and IRSA
+aws:
+  roleArn: "arn:aws:iam::123456789012:role/BlastRadiusRole"
+
+s3:
+  bucket: "my-terraform-state-bucket"
+  region: "us-east-1"
+  refreshInterval: "300"
+
+image:
+  repository: ghcr.io/nkbud/blast-radius
+  tag: "latest"
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: true
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: blast-radius.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: blast-radius-tls
+      hosts:
+        - blast-radius.example.com
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+nodeSelector:
+  kubernetes.io/os: linux
+
+tolerations:
+  - key: "node-role.kubernetes.io/spot"
+    operator: "Exists"
+    effect: "NoSchedule"
