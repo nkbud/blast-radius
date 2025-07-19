@@ -7,14 +7,40 @@
 [examples]: https://28mm.github.io/blast-radius-docs/
 
 _Blast Radius_ is a tool for reasoning about [Terraform][] dependency graphs
-with interactive visualizations.
+with interactive visualizations. Now enhanced with Kubernetes support, S3 integration,
+and advanced state file processing capabilities.
 
 Use _Blast Radius_ to:
 
 * __Learn__ about *Terraform* or one of its providers through real [examples][]
-* __Document__ your infrastructure
+* __Document__ your infrastructure  
 * __Reason__ about relationships between resources and evaluate changes to them
 * __Interact__ with the diagram below (and many others) [in the docs][examples]
+* __Browse__ and visualize Terraform state files from S3 or local uploads
+* __Deploy__ as a production-ready Kubernetes application
+
+![screenshot](doc/blastradius-interactive.png)
+
+## ✨ What's New
+
+### 🔗 **S3 Integration & State Processing**
+- Read and visualize Terraform state files directly from S3 buckets
+- Enhanced state-to-graph conversion with comprehensive dependency detection
+- Upload local `.tfstate` files for instant visualization
+- Thread-safe processing with automatic caching
+
+### ☸️ **Kubernetes Native**
+- Complete Helm chart with production-ready defaults
+- IRSA integration for secure AWS authentication
+- Health check endpoints and proper lifecycle management
+
+### 🎯 **Enhanced Browsing**
+- Interactive dropdown to browse S3 state files
+- File upload interface for local state files
+- Real-time graph generation and caching
+- Detailed file metadata and information
+
+[📖 **Enhanced State Processing Guide**](doc/enhanced-state-processing.md)
 
 ![screenshot](doc/blastradius-interactive.png)
 
@@ -27,6 +53,7 @@ Use _Blast Radius_ to:
 
 ## Quickstart
 
+### Traditional Local Mode
 The fastest way to get up and running with *Blast Radius* is to install it with
 `pip` to your pre-existing environment:
 
@@ -42,6 +69,32 @@ blast-radius --serve /path/to/terraform/directory
 ```
 
 And you will shortly be rewarded with a browser link http://127.0.0.1:5000/.
+
+### ⚡ New: State File Processing
+
+**Process any `.tfstate` file directly** (no terraform CLI required):
+
+1. **Upload via Web UI**: Start the server and click "Upload State" to select your `.tfstate` file
+2. **Via API**: 
+   ```bash
+   curl -X POST -F "state_file=@terraform.tfstate" \
+     http://localhost:5000/api/state/process?format=svg
+   ```
+
+### ☁️ New: S3 Integration
+
+**Visualize state files from S3 buckets**:
+
+```bash
+# Set environment variables
+export S3_BUCKET=my-terraform-states
+export S3_REGION=us-east-1
+
+# Start server - automatically detects S3 mode
+blast-radius --serve
+```
+
+Then browse available state files via the dropdown menu in the web interface.
 
 ## Docker
 
