@@ -136,33 +136,112 @@ class S3StateReader:
     def list_available_states(self) -> list:
         """
         List available Terraform state files in the S3 bucket.
+        Enhanced with caching and pagination support.
         
         Returns:
             List of S3 keys for .tfstate files
         """
         if not self.is_s3_enabled():
             return []
+        
+        # Check cache first
+        cache_key = '_state_list'
+        current_time = time.time()
+        if cache_key in self._state_cache:
+            last_refresh = self._last_refresh.get(cache_key, 0)
+            if current_time - last_refresh < self.refresh_interval:
+                logger.debug("Using cached state file list")
+                return self._state_cache[cache_key]
             
         try:
-            response = self.s3_client.list_objects_v2(
-                Bucket=self.bucket,
-                Prefix='',  # List all objects
-                MaxKeys=1000
-            )
-            
             state_files = []
-            if 'Contents' in response:
-                for obj in response['Contents']:
-                    key = obj['Key']
-                    if key.endswith('.tfstate') or 'terraform.tfstate' in key:
-                        state_files.append(key)
+            continuation_token = None
+            
+            while True:
+                # Prepare list_objects_v2 parameters
+                params = {
+                    'Bucket': self.bucket,
+                    'MaxKeys': 1000
+                }
+                
+                if continuation_token:
+                    params['ContinuationToken'] = continuation_token
+                
+                response = self.s3_client.list_objects_v2(**params)
+                
+                if 'Contents' in response:
+                    for obj in response['Contents']:
+                        key = obj['Key']
+                        # More comprehensive state file detection
+                        if (key.endswith('.tfstate') or 
+                            'terraform.tfstate' in key or
+                            key.endswith('.tfstate.backup')):
+                            
+                            # Skip backup files unless no main state file exists
+                            if not key.endswith('.backup'):
+                                state_files.append({
+                                    'key': key,
+                                    'size': obj['Size'],
+                                    'last_modified': obj['LastModified'].isoformat(),
+                                    'type': 'state'
+                                })
+                            elif key.endswith('.backup') and key.replace('.backup', '') not in [f['key'] for f in state_files]:
+                                state_files.append({
+                                    'key': key,
+                                    'size': obj['Size'],
+                                    'last_modified': obj['LastModified'].isoformat(),
+                                    'type': 'backup'
+                                })
+                
+                # Check if there are more pages
+                if response.get('IsTruncated', False):
+                    continuation_token = response.get('NextContinuationToken')
+                else:
+                    break
+            
+            # Sort by last modified date, newest first
+            state_files.sort(key=lambda x: x['last_modified'], reverse=True)
+            
+            # Extract just the keys for backward compatibility, but keep full info in cache
+            state_keys = [sf['key'] for sf in state_files]
+            
+            # Cache the result
+            self._state_cache[cache_key] = state_keys
+            self._state_cache[cache_key + '_detailed'] = state_files  # Store detailed info too
+            self._last_refresh[cache_key] = current_time
             
             logger.info(f"Found {len(state_files)} state files in S3")
-            return sorted(state_files)
+            return state_keys
             
         except ClientError as e:
             logger.error(f"Error listing S3 objects: {e}")
             return []
+    
+    def get_state_file_info(self, key: str) -> Optional[Dict[str, Any]]:
+        """
+        Get detailed information about a state file without downloading it.
+        
+        Args:
+            key: S3 key for the state file
+            
+        Returns:
+            File metadata or None if not found
+        """
+        if not self.is_s3_enabled():
+            return None
+            
+        try:
+            response = self.s3_client.head_object(Bucket=self.bucket, Key=key)
+            return {
+                'key': key,
+                'size': response['ContentLength'],
+                'last_modified': response['LastModified'].isoformat(),
+                'etag': response['ETag'].strip('"'),
+                'content_type': response.get('ContentType', 'application/json')
+            }
+        except ClientError as e:
+            logger.error(f"Error getting state file info for {key}: {e}")
+            return None
     
     def clear_cache(self):
         """Clear the state file cache."""

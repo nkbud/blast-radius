@@ -48,6 +48,36 @@
                         <select style="width: 400px;" id="graph-search"></select>
                     </form>
                 </li>
+                {% if s3_mode %}
+                <li class="nav-item">
+                    <div class="btn-group">
+                        <button type="button" class="btn btn-info dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="S3 State Files">
+                            <i class="fas fa-file-code"></i> State Files
+                        </button>
+                        <div class="dropdown-menu" id="s3-states-menu">
+                            <div class="dropdown-item">
+                                <label><b>Available State Files</b></label>
+                            </div>
+                            <div class="dropdown-divider"></div>
+                            <div class="dropdown-item" id="s3-states-loading">
+                                <i class="fas fa-spinner fa-spin"></i> Loading...
+                            </div>
+                        </div>
+                    </div>
+                </li>
+                <li class="nav-item">
+                    <button class="btn btn-warning" id="s3-refresh" title="Refresh S3 cache">
+                        <i class="fas fa-sync"></i> Refresh
+                    </button>
+                </li>
+                {% else %}
+                <li class="nav-item">
+                    <button class="btn btn-success" id="upload-state" title="Upload state file">
+                        <i class="fas fa-upload"></i> Upload State
+                    </button>
+                    <input type="file" id="state-file-input" accept=".tfstate,.json" style="display: none;">
+                </li>
+                {% endif %}
                 <li class="nav-item">
                     <button class="btn btn-danger" id="graph-refocus" title="prune to selection">&nbsp;<i class="fas fa-code-branch"></i></button>
                 </li>
@@ -146,7 +176,166 @@
 
         // br_state['#graph'] maintains state for this instance of blastradius
         var br_state = { '#graph' : {}}
+        var s3_mode = {{ 's3_mode' if s3_mode else 'false' }};
+        var current_s3_key = null;
+        
+        // Initialize blast radius
         blastradius('#graph', '/graph.svg', '/graph.json', br_state);
+        
+        // S3 functionality
+        if (s3_mode) {
+            // Load available S3 state files on page load
+            loadS3States();
+            
+            // Refresh button handler
+            $('#s3-refresh').click(function() {
+                refreshS3Cache();
+            });
+        } else {
+            // Local mode - handle file uploads
+            $('#upload-state').click(function() {
+                $('#state-file-input').click();
+            });
+            
+            $('#state-file-input').change(function(event) {
+                var file = event.target.files[0];
+                if (file) {
+                    uploadStateFile(file);
+                }
+            });
+        }
+        
+        function loadS3States() {
+            $('#s3-states-loading').show();
+            
+            $.get('/api/s3/states')
+                .done(function(data) {
+                    var menu = $('#s3-states-menu');
+                    // Remove existing state file items
+                    menu.find('.state-file-item').remove();
+                    
+                    if (data.states && data.states.length > 0) {
+                        data.states.forEach(function(state) {
+                            var item = $('<a class="dropdown-item state-file-item" href="#" data-state="' + state + '">' + state + '</a>');
+                            item.click(function(e) {
+                                e.preventDefault();
+                                loadStateFile(state);
+                            });
+                            menu.append(item);
+                        });
+                    } else {
+                        var noStates = $('<div class="dropdown-item state-file-item">No state files found</div>');
+                        menu.append(noStates);
+                    }
+                })
+                .fail(function() {
+                    var error = $('<div class="dropdown-item state-file-item text-danger">Error loading state files</div>');
+                    $('#s3-states-menu').append(error);
+                })
+                .always(function() {
+                    $('#s3-states-loading').hide();
+                });
+        }
+        
+        function loadStateFile(stateKey) {
+            current_s3_key = stateKey;
+            // Update the graph URLs to include the S3 key parameter
+            var svgUrl = '/graph.svg?s3_key=' + encodeURIComponent(stateKey);
+            var jsonUrl = '/graph.json?s3_key=' + encodeURIComponent(stateKey);
+            
+            // Reload the blast radius with the new URLs
+            $('#graph').empty();
+            blastradius('#graph', svgUrl, jsonUrl, br_state);
+            
+            // Update the page title or add some visual indicator
+            $('title').text('Blast Radius - ' + stateKey);
+        }
+        
+        function refreshS3Cache() {
+            var button = $('#s3-refresh');
+            var originalHtml = button.html();
+            button.html('<i class="fas fa-spinner fa-spin"></i> Refreshing...');
+            button.prop('disabled', true);
+            
+            $.post('/api/s3/refresh')
+                .done(function() {
+                    // Reload the state files list
+                    loadS3States();
+                    
+                    // If we have a current state file, reload it
+                    if (current_s3_key) {
+                        loadStateFile(current_s3_key);
+                    }
+                })
+                .fail(function() {
+                    alert('Error refreshing S3 cache');
+                })
+                .always(function() {
+                    button.html(originalHtml);
+                    button.prop('disabled', false);
+                });
+        }
+        
+        function uploadStateFile(file) {
+            var formData = new FormData();
+            formData.append('state_file', file);
+            
+            // Show loading state
+            var originalTitle = $('title').text();
+            $('title').text('Processing state file...');
+            
+            $.ajax({
+                url: '/api/state/process?format=json',
+                type: 'POST',
+                data: formData,
+                processData: false,
+                contentType: false,
+                success: function(data) {
+                    // Create a custom graph visualization from the processed data
+                    displayUploadedStateGraph(data, file.name);
+                    $('title').text('Blast Radius - ' + file.name);
+                },
+                error: function(xhr, status, error) {
+                    var errorMsg = 'Error processing state file';
+                    if (xhr.responseJSON && xhr.responseJSON.error) {
+                        errorMsg += ': ' + xhr.responseJSON.error;
+                    }
+                    alert(errorMsg);
+                    $('title').text(originalTitle);
+                }
+            });
+        }
+        
+        function displayUploadedStateGraph(graphData, filename) {
+            // Clear existing graph
+            $('#graph').empty();
+            
+            // Create a data URL for the graph data
+            var jsonBlob = new Blob([JSON.stringify(graphData)], {type: 'application/json'});
+            var jsonUrl = URL.createObjectURL(jsonBlob);
+            
+            // Get SVG version for display
+            var svgFormData = new FormData();
+            svgFormData.append('state_file', $('#state-file-input')[0].files[0]);
+            
+            $.ajax({
+                url: '/api/state/process?format=svg',
+                type: 'POST',
+                data: svgFormData,
+                processData: false,
+                contentType: false,
+                success: function(svgData) {
+                    var svgBlob = new Blob([svgData], {type: 'image/svg+xml'});
+                    var svgUrl = URL.createObjectURL(svgBlob);
+                    
+                    // Initialize blast radius with the blob URLs
+                    blastradius('#graph', svgUrl, jsonUrl, br_state);
+                },
+                error: function() {
+                    alert('Error generating graph visualization');
+                }
+            });
+        }
 
     </script>
 
